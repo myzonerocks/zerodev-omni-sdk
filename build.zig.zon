@@ -9,11 +9,12 @@
             .hash = "zigeth-0.2.1-5mqWFBsFEAAsa4-RVOiEpwfANnk0os50mP-j5ogPPWu8",
         },
         // Override zigeth's stale secp256k1 URL (DaviRain-Su repo was deleted).
-        // Pinned to a specific commit so CI fetches stable bytes — tracking
-        // `main` caused repeated hash mismatches when upstream updated.
+        // Pinned to commit cf93d6597d — this tarball hashes to the value zigeth
+        // declares internally, so the override is honored on CI. Tracking main
+        // broke whenever jsign pushed to main (e.g., 01f8df8 upgraded to Zig 0.16).
         .zig_eth_secp256k1 = .{
-            .url = "https://github.com/jsign/zig-eth-secp256k1/archive/01f8df8a1633a40f958ee06640e886424a85106f.tar.gz",
-            .hash = "zig_eth_secp256k1-0.1.0-_U97sAbrDAAB9Q-p2ik2QqpECd08t0meJdb11Rh-HnGo",
+            .url = "https://github.com/jsign/zig-eth-secp256k1/archive/cf93d6597d4fd1b40ddd4dbeaa5e46aea6f4abf2.tar.gz",
+            .hash = "zig_eth_secp256k1-0.1.0-_U97sBjqDACdmkjL_I_1dncMBvOZ0iSxbcMg4pIcVM4P",
         },
     },
     .paths = .{
