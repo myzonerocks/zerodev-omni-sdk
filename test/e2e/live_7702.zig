@@ -1,44 +1,19 @@
-//! Live E2E test exercising the C API orchestrator (aa_send_userop).
+//! Live E2E test exercising the C API EIP-7702 account flow on Sepolia.
 //!
-//! This test calls the same exported C functions that Go/Rust/Swift would use,
-//! proving the full pipeline works through the FFI boundary.
+//! Generates a fresh EOA via `aa_signer_generate` — this forces the delegation
+//! to be installed on the first UserOp, exercising the authorization-signing path.
+//! The UserOp is sponsored by the ZeroDev paymaster, so the EOA needs no ETH.
 //!
 //! Requires environment variables:
 //!   ZERODEV_PROJECT_ID  — ZeroDev project ID
-//!   E2E_PRIVATE_KEY     — 32-byte hex private key (no 0x prefix)
 //!
-//! Run via: zig build test-live-capi
+//! Run via: zig build test-live-7702
 
 const std = @import("std");
 const c_api = @import("c_api");
 
 fn getEnvOr(key: []const u8, default: []const u8) []const u8 {
     return std.posix.getenv(key) orelse default;
-}
-
-fn hexToBytes32(hex: []const u8) ![32]u8 {
-    const stripped = if (hex.len >= 2 and hex[0] == '0' and (hex[1] == 'x' or hex[1] == 'X'))
-        hex[2..]
-    else
-        hex;
-    if (stripped.len != 64) return error.InvalidLength;
-
-    var result: [32]u8 = undefined;
-    for (0..32) |i| {
-        const hi = try hexDigit(stripped[i * 2]);
-        const lo = try hexDigit(stripped[i * 2 + 1]);
-        result[i] = (hi << 4) | lo;
-    }
-    return result;
-}
-
-fn hexDigit(c: u8) !u8 {
-    return switch (c) {
-        '0'...'9' => c - '0',
-        'a'...'f' => c - 'a' + 10,
-        'A'...'F' => c - 'A' + 10,
-        else => return error.InvalidCharacter,
-    };
 }
 
 fn fmtBytes(bytes: []const u8, buf: []u8) []const u8 {
@@ -54,61 +29,50 @@ fn fmtBytes(bytes: []const u8, buf: []u8) []const u8 {
 fn skipIfNoEnv() bool {
     const project_id = getEnvOr("ZERODEV_PROJECT_ID", "");
     if (project_id.len == 0) {
-        std.log.warn("ZERODEV_PROJECT_ID not set, skipping C API live tests", .{});
+        std.log.warn("ZERODEV_PROJECT_ID not set, skipping 7702 live test", .{});
         return true;
     }
     return false;
 }
 
-test "C API: aa_send_userop full pipeline on Sepolia" {
+test "C API: aa_context_new_account_7702 sponsored UserOp on Sepolia" {
     if (skipIfNoEnv()) return;
 
     const allocator = std.testing.allocator;
 
     const project_id = getEnvOr("ZERODEV_PROJECT_ID", "");
-    const pk_hex = getEnvOr("E2E_PRIVATE_KEY", "");
-    if (pk_hex.len == 0) return;
-
-    const pk_bytes = try hexToBytes32(pk_hex);
     const chain_id: u64 = 11155111;
 
-    // Null-terminate the project_id for C API
     const pid_z = try allocator.allocSentinel(u8, project_id.len, 0);
     defer allocator.free(pid_z);
     @memcpy(pid_z, project_id);
 
-    // Step 1: Create context (empty rpc_url and bundler_url — derive from project_id)
+    // Step 1: Create context
     var ctx: ?*c_api.ContextImpl = null;
-    const ctx_status = c_api.aa_context_create(pid_z.ptr, "", "", chain_id, &ctx);
-    try std.testing.expectEqual(c_api.Status.ok, ctx_status);
+    try std.testing.expectEqual(c_api.Status.ok, c_api.aa_context_create(pid_z.ptr, "", "", chain_id, &ctx));
     try std.testing.expect(ctx != null);
     defer _ = c_api.aa_context_destroy(ctx);
 
-    // Plug in ZeroDev middleware (gas + paymaster)
-    const gas_status = c_api.aa_context_set_gas_middleware(ctx, &c_api.aa_gas_zerodev);
-    try std.testing.expectEqual(c_api.Status.ok, gas_status);
-    const pm_status2 = c_api.aa_context_set_paymaster_middleware(ctx, &c_api.aa_paymaster_zerodev);
-    try std.testing.expectEqual(c_api.Status.ok, pm_status2);
+    try std.testing.expectEqual(c_api.Status.ok, c_api.aa_context_set_gas_middleware(ctx, &c_api.aa_gas_zerodev));
+    try std.testing.expectEqual(c_api.Status.ok, c_api.aa_context_set_paymaster_middleware(ctx, &c_api.aa_paymaster_zerodev));
 
-    // Step 2: Create signer from the private key
+    // Step 2: Generate a fresh EOA — guarantees first-run delegation install
     var signer: ?*c_api.SignerImpl = null;
-    try std.testing.expectEqual(c_api.Status.ok, c_api.aa_signer_local(&pk_bytes, &signer));
+    try std.testing.expectEqual(c_api.Status.ok, c_api.aa_signer_generate(&signer));
     try std.testing.expect(signer != null);
     defer c_api.aa_signer_destroy(signer);
 
-    // Step 3: Create account (Kernel v3.3, index 0)
+    // Step 3: Create 7702 account — sender == signer EOA, no CREATE2
+    // (only Kernel v3.3 supports EIP-7702 today)
     var account: ?*c_api.AccountImpl = null;
-    const acc_status = c_api.aa_account_create(ctx, signer, c_api.AA_KERNEL_V3_3, 0, &account);
-    try std.testing.expectEqual(c_api.Status.ok, acc_status);
+    try std.testing.expectEqual(c_api.Status.ok, c_api.aa_context_new_account_7702(ctx, signer, c_api.AA_KERNEL_V3_3, &account));
     try std.testing.expect(account != null);
     defer _ = c_api.aa_account_destroy(account);
 
-    // Step 4: Get address
+    // Step 4: Confirm account address is the EOA's address
     var addr: [20]u8 = undefined;
-    const addr_status = c_api.aa_account_get_address(account, &addr);
-    try std.testing.expectEqual(c_api.Status.ok, addr_status);
+    try std.testing.expectEqual(c_api.Status.ok, c_api.aa_account_get_address(account, &addr));
 
-    // Verify address is non-zero
     var all_zero = true;
     for (addr) |b| {
         if (b != 0) {
@@ -121,17 +85,15 @@ test "C API: aa_send_userop full pipeline on Sepolia" {
     var addr_hex_buf: [40]u8 = undefined;
     const addr_hex = fmtBytes(&addr, &addr_hex_buf);
     std.debug.print("\n========================================\n", .{});
-    std.debug.print("C API TEST: Account address: 0x{s}\n", .{addr_hex});
+    std.debug.print("7702 E2E: Account address (EOA): 0x{s}\n", .{addr_hex});
 
-    // Step 5: Build a call (send 0 ETH to self — noop)
+    // Step 5: Send a no-op UserOp — SDK handles delegation check + authorization signing internally
     const call = c_api.CCall{
         .target = addr,
         .value_be = [_]u8{0} ** 32,
         .calldata = null,
         .calldata_len = 0,
     };
-
-    // Step 6: Send UserOp via the high-level orchestrator — THIS IS THE KEY TEST
     var calls_arr = [_]c_api.CCall{call};
     var hash_out: [32]u8 = undefined;
     const send_status = c_api.aa_send_userop(account, @as([*]const c_api.CCall, &calls_arr), 1, &hash_out);
@@ -145,11 +107,8 @@ test "C API: aa_send_userop full pipeline on Sepolia" {
 
     var hash_hex_buf: [64]u8 = undefined;
     const hash_hex = fmtBytes(&hash_out, &hash_hex_buf);
-    std.debug.print("C API TEST: UserOp hash: 0x{s}\n", .{hash_hex});
-    std.debug.print("C API TEST: aa_send_userop SUCCESS!\n", .{});
-    std.debug.print("========================================\n", .{});
+    std.debug.print("7702 E2E: UserOp hash: 0x{s}\n", .{hash_hex});
 
-    // Verify hash is non-zero
     var hash_zero = true;
     for (hash_out) |b| {
         if (b != 0) {
@@ -159,7 +118,7 @@ test "C API: aa_send_userop full pipeline on Sepolia" {
     }
     try std.testing.expect(!hash_zero);
 
-    // Step 7: Wait for user operation receipt (returns full JSON)
+    // Step 6: Wait for receipt
     var json_ptr: [*]u8 = undefined;
     var json_len: usize = undefined;
     const receipt_status = c_api.aa_wait_for_user_operation_receipt(account, &hash_out, 0, 0, &json_ptr, &json_len);
@@ -173,12 +132,10 @@ test "C API: aa_send_userop full pipeline on Sepolia" {
     defer c_api.aa_free(json_ptr);
 
     const json_str = json_ptr[0..json_len];
-    std.debug.print("C API TEST: Receipt JSON ({d} bytes): {s}\n", .{ json_len, json_str[0..@min(json_len, 200)] });
+    std.debug.print("7702 E2E: Receipt ({d} bytes): {s}\n", .{ json_len, json_str[0..@min(json_len, 300)] });
 
-    // Verify JSON contains expected fields
     try std.testing.expect(std.mem.indexOf(u8, json_str, "\"success\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, json_str, "\"userOpHash\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json_str, "\"receipt\"") != null);
-    std.debug.print("C API TEST: WaitForUserOperationReceipt SUCCESS!\n", .{});
+    std.debug.print("7702 E2E: SUCCESS\n", .{});
     std.debug.print("========================================\n", .{});
 }
