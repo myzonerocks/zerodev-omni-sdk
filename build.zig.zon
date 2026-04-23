@@ -13,7 +13,7 @@
         // declares internally, so the override is honored on CI. Tracking main
         // broke whenever jsign pushed to main (e.g., 01f8df8 upgraded to Zig 0.16).
         .zig_eth_secp256k1 = .{
-            .url = "https://github.com/jsign/zig-eth-secp256k1/archive/cf93d6597d4fd1b40ddd4dbeaa5e46aea6f4abf2.tar.gz",
+            .url = "https://github.com/jsign/zig-eth-secp256k1/archive/cf93d6597dacbd444b4b55728111c063f0efa962.tar.gz",
             .hash = "zig_eth_secp256k1-0.1.0-_U97sBjqDACdmkjL_I_1dncMBvOZ0iSxbcMg4pIcVM4P",
         },
     },
