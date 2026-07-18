@@ -429,6 +429,19 @@ aa_status aa_encode_change_root_validator(const uint8_t module[20],
  * such as a passkey's authenticatorIdHash = keccak256(credentialId). */
 aa_status aa_keccak256(const uint8_t *data, size_t len, uint8_t out[32]);
 
+/* The value guardians approve for a recovery, into out[0..32]:
+ * keccak256(abi.encode(sender, callData, nonce)). nonce_be is a 32-byte
+ * big-endian uint256. Both guardian kinds approve this same hash. */
+aa_status aa_recovery_hash(const uint8_t sender[20],
+                           const uint8_t *call_data, size_t call_data_len,
+                           const uint8_t nonce_be[32],
+                           uint8_t out[32]);
+
+/* Calldata for approve(hash, kernel) on the weighted validator, for a smart
+ * account guardian to record its approval on chain. *out is heap-allocated. */
+aa_status aa_encode_approve(const uint8_t hash[32], const uint8_t kernel[20],
+                            uint8_t **out, size_t *out_len);
+
 /* ---- Memory management ---- */
 
 /** Allocate `size` bytes via libc `malloc`. Returns NULL on failure or

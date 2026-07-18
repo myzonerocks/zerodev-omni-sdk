@@ -8,6 +8,12 @@
 const std = @import("std");
 const abi = @import("abi");
 
+fn keccak256(data: []const u8) [32]u8 {
+    var out: [32]u8 = undefined;
+    std.crypto.hash.sha3.Keccak256.hash(data, &out, .{});
+    return out;
+}
+
 /// installModule(uint256,address,bytes)
 const INSTALL_MODULE_SELECTOR = [4]u8{ 0x95, 0x17, 0xe2, 0x9f };
 /// changeRootValidator(bytes21,address,bytes,bytes)
@@ -83,6 +89,46 @@ fn prefixSelector(allocator: std.mem.Allocator, selector: [4]u8, args: []const u
     return out;
 }
 
+// ── Weighted validator social recovery ──────────────────────────────────────
+
+/// approve(bytes32,address)
+const APPROVE_SELECTOR = [4]u8{ 0xb2, 0xe2, 0xc9, 0x9b };
+
+/// The value every guardian approves for one recovery:
+/// keccak256(abi.encode(address sender, bytes callData, uint256 nonce)). Pinning
+/// the sender, the rotation calldata, and the nonce ties an approval to exactly
+/// one operation, so a collected approval can never be replayed on another.
+pub fn callDataAndNonceHash(
+    allocator: std.mem.Allocator,
+    sender: [20]u8,
+    call_data: []const u8,
+    nonce: u256,
+) ![32]u8 {
+    const encoded = try abi.encode(allocator, &.{
+        .{ .word = abi.wordAddress(sender) },
+        .{ .dyn_bytes = call_data },
+        .{ .word = abi.word256(nonce) },
+    });
+    defer allocator.free(encoded);
+    return keccak256(encoded);
+}
+
+/// Calldata for approve(callDataAndNonceHash, kernel) on the weighted validator.
+/// A smart-account guardian sends this to the validator to record its approval
+/// on chain; the recovery then counts it toward the threshold.
+pub fn approveCallData(
+    allocator: std.mem.Allocator,
+    call_data_and_nonce_hash: [32]u8,
+    kernel: [20]u8,
+) ![]u8 {
+    const args = try abi.encode(allocator, &.{
+        .{ .word = call_data_and_nonce_hash },
+        .{ .word = abi.wordAddress(kernel) },
+    });
+    defer allocator.free(args);
+    return prefixSelector(allocator, APPROVE_SELECTOR, args);
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────
 // Calldata is pinned to @zerodev/sdk's encodeFunctionData output.
 
@@ -132,5 +178,27 @@ test "changeRootValidatorCallData matches the reference" {
         "0000000000000000000000000000000000000000000000000000000000000003" ++
         "aabbcc0000000000000000000000000000000000000000000000000000000000" ++
         "0000000000000000000000000000000000000000000000000000000000000000");
+    try testing.expectEqualSlices(u8, &expected, cd);
+}
+
+test "callDataAndNonceHash matches the reference" {
+    // cast abi-encode "f(address,bytes,uint256)" 0x..dEaD 0x1234 1, then keccak256.
+    const sender = hexConst("000000000000000000000000000000000000dEaD");
+    const call_data = hexConst("1234");
+    const hash = try callDataAndNonceHash(testing.allocator, sender, &call_data, 1);
+    const expected = hexConst("b5d76da38a7472c816cbc6870c22148e8b55461d0ba15327722f36891b4c055d");
+    try testing.expectEqualSlices(u8, &expected, &hash);
+}
+
+test "approveCallData matches the reference" {
+    // cast calldata "approve(bytes32,address)" 0x..beef 0x..dEaD
+    const hash = hexConst("000000000000000000000000000000000000000000000000000000000000beef");
+    const kernel = hexConst("000000000000000000000000000000000000dEaD");
+    const cd = try approveCallData(testing.allocator, hash, kernel);
+    defer testing.allocator.free(cd);
+    const expected = hexConst(
+        "b2e2c99b" ++
+        "000000000000000000000000000000000000000000000000000000000000beef" ++
+        "000000000000000000000000000000000000000000000000000000000000dead");
     try testing.expectEqualSlices(u8, &expected, cd);
 }

@@ -1870,6 +1870,51 @@ pub export fn aa_encode_change_root_validator(
     return encodePluginCall(false, module, validator_data, validator_data_len, out, out_len);
 }
 
+/// The value guardians approve for a recovery, written into out[0..32]:
+/// keccak256(abi.encode(sender, callData, nonce)). `nonce_be` is a 32-byte
+/// big-endian uint256. Both guardian kinds approve this exact hash.
+pub export fn aa_recovery_hash(
+    sender: ?[*]const u8,
+    call_data: ?[*]const u8,
+    call_data_len: usize,
+    nonce_be: ?[*]const u8,
+    out: ?[*]u8,
+) callconv(.c) Status {
+    if (out == null or sender == null or nonce_be == null) return .null_out_ptr;
+    var s: [20]u8 = undefined;
+    @memcpy(&s, sender.?[0..20]);
+    const cd: []const u8 = if (call_data) |p| p[0..call_data_len] else &[_]u8{};
+    const nonce = std.mem.readInt(u256, nonce_be.?[0..32], .big);
+    const h = plugin.callDataAndNonceHash(defaultAllocator(), s, cd, nonce) catch {
+        setLastError("failed to compute recovery hash", .{});
+        return .encode_failed;
+    };
+    @memcpy(out.?[0..32], &h);
+    return .ok;
+}
+
+/// Calldata for approve(hash, kernel) on the weighted validator, for a smart
+/// account guardian to record its approval on chain. Send it to the validator.
+pub export fn aa_encode_approve(
+    hash: ?[*]const u8,
+    kernel: ?[*]const u8,
+    out: ?*[*]u8,
+    out_len: ?*usize,
+) callconv(.c) Status {
+    if (out == null or out_len == null or hash == null or kernel == null) return .null_out_ptr;
+    var h: [32]u8 = undefined;
+    @memcpy(&h, hash.?[0..32]);
+    var k: [20]u8 = undefined;
+    @memcpy(&k, kernel.?[0..20]);
+    const cd = plugin.approveCallData(defaultAllocator(), h, k) catch {
+        setLastError("failed to encode approve calldata", .{});
+        return .encode_failed;
+    };
+    out.?.* = cd.ptr;
+    out_len.?.* = cd.len;
+    return .ok;
+}
+
 /// Keccak-256 of `data`, written into out[0..32]. Useful for host-side
 /// derivations (e.g. a passkey's authenticatorIdHash = keccak256(credentialId)).
 pub export fn aa_keccak256(
