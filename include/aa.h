@@ -442,6 +442,13 @@ aa_status aa_recovery_hash(const uint8_t sender[20],
 aa_status aa_encode_approve(const uint8_t hash[32], const uint8_t kernel[20],
                             uint8_t **out, size_t *out_len);
 
+/* The account's next nonce for a userop validated by `validator` (a secondary
+ * validator), into out[0..32] big-endian. This is the nonce the recovery hash
+ * binds to. Reads it from the on-chain EntryPoint. */
+aa_status aa_account_nonce_for_validator(aa_account_t *account,
+                                         const uint8_t validator[20],
+                                         uint8_t out[32]);
+
 /* ---- Memory management ---- */
 
 /** Allocate `size` bytes via libc `malloc`. Returns NULL on failure or

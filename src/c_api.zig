@@ -1915,6 +1915,51 @@ pub export fn aa_encode_approve(
     return .ok;
 }
 
+/// The account's next nonce for a userop validated by `validator` (a secondary
+/// validator such as the weighted guardian validator), written into out[0..32]
+/// big-endian. This is the nonce the recovery hash binds to. The nonce key is
+/// the Kernel v3 encoding: mode 0x00 (default), type 0x01 (secondary), the
+/// validator address, then a zero custom key, matching what EntryPoint expects.
+pub export fn aa_account_nonce_for_validator(
+    account: ?*AccountImpl,
+    validator: ?[*]const u8,
+    out: ?[*]u8,
+) callconv(.c) Status {
+    const acc = account orelse return .null_account;
+    if (out == null or validator == null) return .null_out_ptr;
+
+    var key_bytes: [24]u8 = [_]u8{0} ** 24;
+    key_bytes[1] = 0x01; // secondary validator; mode and custom key stay zero
+    @memcpy(key_bytes[2..22], validator.?[0..20]);
+    const key: u192 = std.mem.readInt(u192, &key_bytes, .big);
+
+    var arena = std.heap.ArenaAllocator.init(acc.context.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const read_url: []const u8 = if (acc.context.rpc_url.len > 0)
+        acc.context.rpc_url
+    else
+        core.buildRpcUrl(a, acc.context.project_id, acc.context.chain_id) catch {
+            setLastError("failed to build read RPC URL", .{});
+            return .send_userop_failed;
+        };
+    var rpc = Client.init(a, read_url) catch {
+        setLastError("failed to create read RPC client", .{});
+        return .send_userop_failed;
+    };
+    wireTransport(&rpc, acc.context);
+
+    const nonce = entrypoint_mod.getNonce(&rpc, a, core.ENTRY_POINT_V07, acc.sender_address, key) catch |err| {
+        setLastError("getNonce failed: {s}", .{@errorName(err)});
+        return .send_userop_failed;
+    };
+    var buf: [32]u8 = undefined;
+    std.mem.writeInt(u256, &buf, nonce, .big);
+    @memcpy(out.?[0..32], &buf);
+    return .ok;
+}
+
 /// Keccak-256 of `data`, written into out[0..32]. Useful for host-side
 /// derivations (e.g. a passkey's authenticatorIdHash = keccak256(credentialId)).
 pub export fn aa_keccak256(
