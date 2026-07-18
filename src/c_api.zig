@@ -291,9 +291,9 @@ pub export fn aa_gas_zerodev(
 
     const allocator = c.allocator;
 
-    // Resolve RPC URL
-    const rpc_url: []const u8 = if (c.bundler_url.len > 0)
-        c.bundler_url
+    // Gas price is a read, so use the node RPC (rpc_url), not the bundler.
+    const rpc_url: []const u8 = if (c.rpc_url.len > 0)
+        c.rpc_url
     else blk: {
         const url = core.buildRpcUrl(allocator, c.project_id, c.chain_id) catch {
             setLastError("failed to build RPC URL for gas price", .{});
@@ -301,7 +301,7 @@ pub export fn aa_gas_zerodev(
         };
         break :blk url;
     };
-    const url_allocated = c.bundler_url.len == 0;
+    const url_allocated = c.rpc_url.len == 0;
     defer if (url_allocated) allocator.free(@constCast(rpc_url));
 
     var rpc = Client.init(allocator, rpc_url) catch {
@@ -1135,15 +1135,16 @@ pub export fn aa_userop_build(
         @memcpy(init_code[0..20], &meta_factory.bytes);
         @memcpy(init_code[20..], factory_data);
     } else if (acc.mode == .eip7702) {
-        const rpc_url: []const u8 = if (acc.context.bundler_url.len > 0)
-            acc.context.bundler_url
+        // 7702 reads use the node RPC, not the bundler.
+        const read_url: []const u8 = if (acc.context.rpc_url.len > 0)
+            acc.context.rpc_url
         else
             core.buildRpcUrl(a, acc.context.project_id, acc.context.chain_id) catch {
-                setLastError("failed to build RPC URL from project_id", .{});
+                setLastError("failed to build read RPC URL", .{});
                 return .build_userop_failed;
             };
-        var rpc = Client.init(a, rpc_url) catch {
-            setLastError("failed to create RPC client", .{});
+        var rpc = Client.init(a, read_url) catch {
+            setLastError("failed to create read RPC client", .{});
             return .build_userop_failed;
         };
         wireTransport(&rpc, acc.context);
@@ -1420,6 +1421,19 @@ pub export fn aa_get_last_error() callconv(.c) [*:0]const u8 {
     return @ptrCast(&last_error_buf);
 }
 
+threadlocal var last_rpc_error_cstr: [transport.last_rpc_error_max + 1]u8 = undefined;
+
+/// The server's last JSON-RPC error as a C string, or "". aa_get_last_error is
+/// the SDK's summary; this is the reason the server sent.
+pub export fn aa_get_last_rpc_error() callconv(.c) [*:0]const u8 {
+    const detail = transport.lastRpcError();
+    if (detail.len == 0) return "";
+    const n = @min(detail.len, last_rpc_error_cstr.len - 1);
+    @memcpy(last_rpc_error_cstr[0..n], detail[0..n]);
+    last_rpc_error_cstr[n] = 0;
+    return @ptrCast(&last_rpc_error_cstr);
+}
+
 // ---- High-level send (full pipeline: nonce → build → paymaster → estimate → sign → send) ----
 
 pub export fn aa_send_userop(
@@ -1439,17 +1453,30 @@ pub export fn aa_send_userop(
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Resolve RPC URL: use bundler_url if set, else derive from project_id + chain_id
-    const rpc_url: []const u8 = if (acc.context.bundler_url.len > 0)
+    // Reads use the node RPC; the bundler and paymaster use the bundler URL.
+    // They may be different providers, so each needs its own client.
+    const read_url: []const u8 = if (acc.context.rpc_url.len > 0)
+        acc.context.rpc_url
+    else
+        core.buildRpcUrl(a, acc.context.project_id, acc.context.chain_id) catch {
+            setLastError("failed to build read RPC URL", .{});
+            return .send_userop_failed;
+        };
+    var read_rpc = Client.init(a, read_url) catch {
+        setLastError("failed to create read RPC client", .{});
+        return .send_userop_failed;
+    };
+    wireTransport(&read_rpc, acc.context);
+
+    const bundler_url: []const u8 = if (acc.context.bundler_url.len > 0)
         acc.context.bundler_url
     else
         core.buildRpcUrl(a, acc.context.project_id, acc.context.chain_id) catch {
-            setLastError("failed to build RPC URL from project_id", .{});
+            setLastError("failed to build bundler RPC URL", .{});
             return .send_userop_failed;
         };
-
-    var rpc = Client.init(a, rpc_url) catch {
-        setLastError("failed to create RPC client", .{});
+    var rpc = Client.init(a, bundler_url) catch {
+        setLastError("failed to create bundler RPC client", .{});
         return .send_userop_failed;
     };
     wireTransport(&rpc, acc.context);
@@ -1458,7 +1485,7 @@ pub export fn aa_send_userop(
     const entry_point = Address.fromHex(core.ENTRY_POINT_V07) catch return .send_userop_failed;
 
     // Step 1: Get nonce
-    const nonce = entrypoint_mod.getNonce(&rpc, a, core.ENTRY_POINT_V07, acc.sender_address, 0) catch |err| {
+    const nonce = entrypoint_mod.getNonce(&read_rpc, a, core.ENTRY_POINT_V07, acc.sender_address, 0) catch |err| {
         setLastError("getNonce failed: {s}", .{@errorName(err)});
         return .send_userop_failed;
     };
@@ -1505,7 +1532,7 @@ pub export fn aa_send_userop(
             @memcpy(init_code[20..], factory_data);
         }
     } else {
-        eip7702_auth = prepareEip7702Authorization(acc, &rpc, a, chain_id) catch |err| switch (err) {
+        eip7702_auth = prepareEip7702Authorization(acc, &read_rpc, a, chain_id) catch |err| switch (err) {
             AuthPrepError.RpcFailed => return .send_userop_failed,
             AuthPrepError.SignFailed => return .sign_userop_failed,
         };

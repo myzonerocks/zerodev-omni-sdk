@@ -446,6 +446,10 @@ void aa_free(void *ptr);
 
 const char *aa_get_last_error(void);
 
+/** The server's last JSON-RPC error, or "". aa_get_last_error is the SDK's
+ * summary; this is the reason the server sent. */
+const char *aa_get_last_rpc_error(void);
+
 #ifdef __cplusplus
 }
 #endif
