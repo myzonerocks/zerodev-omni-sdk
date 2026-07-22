@@ -82,6 +82,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+        // Strip debug info so the static lib doesn't pull in Zig's stack-trace
+        // machinery, which references dyld image APIs that don't resolve when the
+        // library links into an iOS app. It's a leaf dependency with its own error
+        // returns, so it never needs a Zig panic trace.
+        .strip = true,
     });
     c_api_mod.addImport("zabi", zabi_mod);
     c_api_mod.addImport("primitives", primitives_mod);
