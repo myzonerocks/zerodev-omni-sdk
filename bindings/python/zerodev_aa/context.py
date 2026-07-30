@@ -1,6 +1,7 @@
 """Context — holds RPC URLs, chain config, and middleware."""
 
 import ctypes
+from typing import Optional
 
 from ._ffi import _lib, _Context, _Account
 from .error import check
@@ -44,13 +45,26 @@ class Context:
         signer: Signer,
         version: KernelVersion = KernelVersion.V3_3,
         index: int = 0,
+        address: Optional[bytes] = None,
     ) -> Account:
         """Create a Kernel smart account.
+
+        When ``address`` is ``None`` (the default), the sender address is
+        derived counterfactually via CREATE2 from ``(signer, version,
+        index)``. When supplied as 20 raw bytes, the account's sender is
+        pinned to that address (migration path for kernel-version upgrades
+        or legacy wallets whose CREATE2 salt this SDK no longer computes).
+        Pinning affects the sender only; factory init_code is still
+        emitted on the first UserOp exactly as it would be for a
+        counterfactually-derived account (governed by the EntryPoint
+        nonce). Callers pinning an already-deployed account with
+        EntryPoint nonce 0 (rare — funded but never used) should drop the
+        factory bytes via the low-level UserOp API.
 
         The returned :class:`Account` holds a strong reference to ``signer``
         (audit F-09) so GC won't finalize it while the account is alive.
         """
-        return Account._create(self, signer, int(version), index)
+        return Account._create(self, signer, int(version), index, address)
 
     def new_account_7702(
         self,

@@ -392,7 +392,18 @@ type Account struct {
 }
 
 // NewAccount creates a new Kernel account using the given signer.
-func (c *Context) NewAccount(signer *Signer, version KernelVersion, index uint32) (*Account, error) {
+//
+// If `address` is nil, the sender address is derived counterfactually via
+// CREATE2 from (signer, version, index) — the standard flow. If non-nil, it
+// pins the account's sender to that address (migration path for kernel
+// version upgrades, or operating a legacy wallet whose CREATE2 salt this
+// SDK no longer computes). Pinning affects the sender only; factory
+// init_code is still emitted on the first UserOp exactly as it would be
+// for a counterfactually-derived account (governed by the EntryPoint
+// nonce). Callers pinning an already-deployed account with EntryPoint
+// nonce 0 (rare — funded but never used) should drop the factory bytes
+// via the low-level UserOp API.
+func (c *Context) NewAccount(signer *Signer, version KernelVersion, index uint32, address *[20]byte) (*Account, error) {
 	if c.ctx == nil {
 		return nil, fmt.Errorf("context is nil")
 	}
@@ -400,8 +411,20 @@ func (c *Context) NewAccount(signer *Signer, version KernelVersion, index uint32
 		return nil, fmt.Errorf("signer is nil")
 	}
 
+	var addrPtr *C.uint8_t
+	if address != nil {
+		addrPtr = (*C.uint8_t)(unsafe.Pointer(&address[0]))
+	}
+
 	var acc *C.aa_account_t
-	status := C.aa_account_create(c.ctx, signer.ptr, C.aa_kernel_version(version), C.uint32_t(index), &acc)
+	status := C.aa_account_create(
+		c.ctx,
+		signer.ptr,
+		C.aa_kernel_version(version),
+		C.uint32_t(index),
+		addrPtr,
+		&acc,
+	)
 	if status != C.AA_OK {
 		return nil, fmt.Errorf("aa_account_create failed: %s (code %d)", C.GoString(C.aa_get_last_error()), int(status))
 	}

@@ -28,8 +28,14 @@ internal object NativeLib {
     @JvmStatic external fun nSignerCustomCleanup(vtablePtr: Long, ctxPtr: Long)
 
     /* ---- Account ---- */
+    /**
+     * Create a Kernel account. `address` may be null (counterfactual CREATE2)
+     * or a 20-byte array (pinned to that on-chain address, used for kernel-
+     * version upgrades / migration from older CREATE2 salts).
+     */
     @JvmStatic external fun nAccountCreate(
-        ctxPtr: Long, signerPtr: Long, version: Int, index: Int, out: LongArray,
+        ctxPtr: Long, signerPtr: Long, version: Int, index: Int,
+        address: ByteArray?, out: LongArray,
     ): Int
 
     /**

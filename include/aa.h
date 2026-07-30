@@ -247,10 +247,29 @@ void aa_signer_destroy(aa_signer_t *signer);
 
 /* ---- Account (Kernel v3.x + ECDSA validator) ---- */
 
+/** Create a Kernel smart account.
+ *
+ * `address` may be NULL, in which case the sender address is derived
+ * counterfactually via CREATE2 from `(owner, index, version)` — the standard
+ * flow. When non-NULL, it pins the account's sender to that address.
+ *
+ * This is the migration path for accounts whose original CREATE2 inputs
+ * (older kernel version, factory salt) this SDK cannot reproduce — post-
+ * upgrade the on-chain address is fixed but `(signer, version, index)` in
+ * the new SDK derives a different one. The caller passes the correct
+ * address; the SDK has nothing to cross-check against.
+ *
+ * Pinning affects the sender only. Factory init_code is still emitted on
+ * the first UserOp exactly as it would be for a counterfactually-derived
+ * account (governed by the EntryPoint nonce). Callers pinning an
+ * already-deployed account whose EntryPoint nonce is still 0 (rare —
+ * funded but never used) should drop the factory bytes via the low-level
+ * UserOp API. */
 aa_status aa_account_create(aa_context_t *ctx,
                             aa_signer_t *signer,
                             aa_kernel_version version,
                             uint32_t index,
+                            const uint8_t address[20],
                             aa_account_t **out);
 
 /** Create an EIP-7702 account. The account's address is the signer's EOA

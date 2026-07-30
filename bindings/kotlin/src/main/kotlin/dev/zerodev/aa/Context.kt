@@ -29,14 +29,33 @@ class Context private constructor(internal val ptr: Long) : AutoCloseable {
         }
     }
 
+    /**
+     * Create a Kernel smart account.
+     *
+     * When [address] is null (the default), the sender is derived
+     * counterfactually via CREATE2 from `(signer, version, index)`. When
+     * supplied as a 20-byte array, the account's sender is pinned to that
+     * address (migration path for kernel-version upgrades or legacy
+     * wallets whose CREATE2 salt this SDK no longer computes). Pinning
+     * affects the sender only; factory init_code is still emitted on the
+     * first UserOp exactly as it would be for a counterfactually-derived
+     * account (governed by the EntryPoint nonce). Callers pinning an
+     * already-deployed account with EntryPoint nonce 0 (rare — funded but
+     * never used) should drop the factory bytes via the low-level UserOp
+     * API.
+     */
     fun newAccount(
         signer: Signer,
         version: KernelVersion,
         index: Int = 0,
+        address: ByteArray? = null,
     ): Account {
         check(!closed) { "Context is closed" }
+        if (address != null) {
+            require(address.size == 20) { "address must be 20 bytes, got ${address.size}" }
+        }
         val out = LongArray(1)
-        checkStatus(NativeLib.nAccountCreate(ptr, signer.ptr, version.code, index, out))
+        checkStatus(NativeLib.nAccountCreate(ptr, signer.ptr, version.code, index, address, out))
         return Account(out[0], this, signer)
     }
 

@@ -26,9 +26,46 @@ public final class Context: @unchecked Sendable {
         useURLSessionTransport()
     }
 
-    public func newAccount(signer: Signer, version: KernelVersion, index: UInt32 = 0) throws -> Account {
+    /// Create a Kernel smart account.
+    ///
+    /// When `address` is `nil` (the default), the sender is derived
+    /// counterfactually via CREATE2 from `(signer, version, index)`. When
+    /// supplied, the account's sender is pinned to that address
+    /// (migration path for kernel-version upgrades, or operating a
+    /// pre-existing wallet whose CREATE2 salt this SDK no longer
+    /// computes). Pinning affects the sender only; factory init_code is
+    /// still emitted on the first UserOp exactly as it would be for a
+    /// counterfactually-derived account (governed by the EntryPoint
+    /// nonce). Callers pinning an already-deployed account with
+    /// EntryPoint nonce 0 (rare — funded but never used) should drop the
+    /// factory bytes via the low-level UserOp API.
+    public func newAccount(
+        signer: Signer,
+        version: KernelVersion,
+        index: UInt32 = 0,
+        address: [UInt8]? = nil
+    ) throws -> Account {
+        if let a = address {
+            precondition(a.count == 20, "address must be 20 bytes")
+        }
         var out: OpaquePointer?
-        let status = aa_account_create(ptr, signer.ptr, aa_kernel_version(rawValue: UInt32(version.rawValue)), index, &out)
+        let status = address?.withUnsafeBufferPointer { buf in
+            aa_account_create(
+                ptr,
+                signer.ptr,
+                aa_kernel_version(rawValue: UInt32(version.rawValue)),
+                index,
+                buf.baseAddress,
+                &out
+            )
+        } ?? aa_account_create(
+            ptr,
+            signer.ptr,
+            aa_kernel_version(rawValue: UInt32(version.rawValue)),
+            index,
+            nil,
+            &out
+        )
         try checkResult(status)
         guard let p = out else { throw AAError.nullOutPtr }
         return Account(ptr: p, context: self, signer: signer)

@@ -311,6 +311,18 @@ impl Context {
 
     /// Create a new Kernel account bound to this context.
     ///
+    /// `address` may be `None` — the sender address is then derived
+    /// counterfactually via CREATE2 from `(signer, version, index)`, the
+    /// standard flow. When `Some`, the account's sender is pinned to that
+    /// address (migration path for kernel-version upgrades, or operating
+    /// a pre-existing wallet whose CREATE2 salt this SDK no longer
+    /// computes). Pinning affects the sender only; factory init_code is
+    /// still emitted on the first UserOp exactly as it would be for a
+    /// counterfactually-derived account (governed by the EntryPoint
+    /// nonce). Callers pinning an already-deployed account with
+    /// EntryPoint nonce 0 (rare — funded but never used) should drop the
+    /// factory bytes via the low-level UserOp API.
+    ///
     /// Both `self` (the Context) and `signer` must outlive the returned
     /// [`Account`] — enforced at compile time via the shared `'a` lifetime.
     pub fn new_account<'a>(
@@ -318,14 +330,19 @@ impl Context {
         signer: &'a Signer,
         version: KernelVersion,
         index: u32,
+        address: Option<[u8; 20]>,
     ) -> Result<Account<'a>> {
         let mut acc: *mut ffi::aa_account_t = ptr::null_mut();
+        let addr_ptr = address
+            .as_ref()
+            .map_or(ptr::null(), |a| a.as_ptr());
         unsafe {
             error::check(ffi::aa_account_create(
                 self.ptr,
                 signer.ptr,
                 version.to_c(),
                 index,
+                addr_ptr,
                 &mut acc,
             ))?;
         }
@@ -393,7 +410,7 @@ impl Drop for Context {
 /// use zerodev_aa::{Context, GasMiddleware, KernelVersion, PaymasterMiddleware, Signer};
 /// # fn demo(ctx: &Context) -> Result<(), Box<dyn std::error::Error>> {
 /// let signer = Signer::local(&[0x11u8; 32])?;
-/// let account = ctx.new_account(&signer, KernelVersion::V3_3, 0)?;
+/// let account = ctx.new_account(&signer, KernelVersion::V3_3, 0, None)?;
 /// drop(signer); // F-09 tripwire: must NOT compile while `account` is alive.
 /// let _ = account.get_address()?;
 /// # Ok(())
