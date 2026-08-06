@@ -1,0 +1,15 @@
+# Dart / pub
+.dart_tool/
+.packages
+pubspec.lock
+build/
+
+# Native libraries bundled by CI (not checked in)
+native/
+*.dylib
+*.so
+*.dll
+
+# The generated FFI bindings ARE checked in (consumers need them without
+# libclang); override a global *.g.dart ignore.
+!lib/src/ffi/aa_bindings.g.dart
