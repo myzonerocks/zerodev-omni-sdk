@@ -125,8 +125,10 @@ pub const WebAuthnValidator = struct {
 
         const rs = parseAndNormalizeSig(assertion.der_signature) catch return SignError.SigningFailed;
 
-        // responseTypeLocation: where the type field begins in the clientDataJSON.
-        const loc = std.mem.lastIndexOf(u8, assertion.client_data_json, "\"type\":\"webauthn.get\"") orelse
+        // responseTypeLocation: the first occurrence of the type field. The
+        // on-chain verifier reads the type at this offset, so it must be the
+        // genuine leading field, not a later attacker-influenced copy.
+        const loc = std.mem.indexOf(u8, assertion.client_data_json, "\"type\":\"webauthn.get\"") orelse
             return SignError.SigningFailed;
 
         return abi.encode(allocator, &.{
@@ -172,6 +174,11 @@ fn parseAndNormalizeSig(der: []const u8) !RS {
 
     const r = try readDerInt(der, &i);
     const s_raw = try readDerInt(der, &i);
+
+    // A valid P-256 signature has 1 <= r,s < N. Reject zero or out-of-range
+    // scalars up front: they are malformed, and passing them on would just be
+    // rejected on-chain after the user already paid to sign.
+    if (r == 0 or r >= P256_N or s_raw == 0 or s_raw >= P256_N) return error.BadDer;
 
     const s = if (s_raw > P256_N / 2) P256_N - s_raw else s_raw;
     return .{ .r = r, .s = s };
