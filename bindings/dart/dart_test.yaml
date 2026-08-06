@@ -1,0 +1,4 @@
+# The `live` tag marks end-to-end tests that hit ZeroDev Sepolia. They are
+# skipped unless ZERODEV_PROJECT_ID is set; run them with `dart test --tags live`.
+tags:
+  live:

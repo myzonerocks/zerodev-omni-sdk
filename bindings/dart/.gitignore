@@ -13,3 +13,6 @@ native/
 # The generated FFI bindings ARE checked in (consumers need them without
 # libclang); override a global *.g.dart ignore.
 !lib/src/ffi/aa_bindings.g.dart
+
+# The Makefile is checked in like the other bindings; override a global ignore.
+!Makefile
