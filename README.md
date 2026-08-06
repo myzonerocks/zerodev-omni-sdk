@@ -176,7 +176,7 @@ Custom signers may override `signAuthorization` (and return `true` from
 `providesSignAuthorization`) to sign 7702 tuples natively; otherwise the SDK
 hashes `keccak256(0x05 || rlp([chainId, address, nonce]))` and calls `signHash`.
 
-> **Runnable example:** [`bindings/dart/example`](bindings/dart/example/)
+> **Full example:** [`examples/gasless-transfer-7702/dart/`](examples/gasless-transfer-7702/dart/)
 
 ---
 

@@ -1,0 +1,10 @@
+name: gasless_transfer_7702_dart
+description: ZeroDev gasless transfer via EIP-7702, using the Dart binding.
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  zerodev_aa:
+    path: ../../../bindings/dart
