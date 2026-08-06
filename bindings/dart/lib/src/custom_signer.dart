@@ -13,6 +13,11 @@ part of 'sdk.dart';
 /// Extend this class to implement only the four required methods; override
 /// [providesSignAuthorization] and [signAuthorization] to sign EIP-7702 tuples
 /// natively.
+///
+/// Signing is synchronous: the SDK invokes these methods on the calling isolate
+/// and cannot await. If your key material is only reachable asynchronously (a
+/// remote wallet, an embedded provider), resolve it before the call — e.g. warm
+/// a cache, then look it up synchronously here.
 abstract class SignerImpl {
   /// Sign a 32-byte [hash], returning a 65-byte `r‖s‖v` signature.
   Uint8List signHash(Uint8List hash);
