@@ -292,8 +292,11 @@ pub export fn aa_gas_zerodev(
     const allocator = c.allocator;
 
     // Gas price is a read, so use the node RPC (rpc_url), not the bundler.
+    // Fall back to the bundler URL for callers that predate the rpc_url split.
     const rpc_url: []const u8 = if (c.rpc_url.len > 0)
         c.rpc_url
+    else if (c.bundler_url.len > 0)
+        c.bundler_url
     else blk: {
         const url = core.buildRpcUrl(allocator, c.project_id, c.chain_id) catch {
             setLastError("failed to build RPC URL for gas price", .{});
@@ -301,7 +304,7 @@ pub export fn aa_gas_zerodev(
         };
         break :blk url;
     };
-    const url_allocated = c.rpc_url.len == 0;
+    const url_allocated = c.rpc_url.len == 0 and c.bundler_url.len == 0;
     defer if (url_allocated) allocator.free(@constCast(rpc_url));
 
     var rpc = Client.init(allocator, rpc_url) catch {
@@ -1135,9 +1138,12 @@ pub export fn aa_userop_build(
         @memcpy(init_code[0..20], &meta_factory.bytes);
         @memcpy(init_code[20..], factory_data);
     } else if (acc.mode == .eip7702) {
-        // 7702 reads use the node RPC, not the bundler.
+        // 7702 reads use the node RPC, not the bundler. Fall back to the
+        // bundler URL for callers that predate the rpc_url split.
         const read_url: []const u8 = if (acc.context.rpc_url.len > 0)
             acc.context.rpc_url
+        else if (acc.context.bundler_url.len > 0)
+            acc.context.bundler_url
         else
             core.buildRpcUrl(a, acc.context.project_id, acc.context.chain_id) catch {
                 setLastError("failed to build read RPC URL", .{});
@@ -1454,9 +1460,12 @@ pub export fn aa_send_userop(
     const a = arena.allocator();
 
     // Reads use the node RPC; the bundler and paymaster use the bundler URL.
-    // They may be different providers, so each needs its own client.
+    // They may be different providers, so each needs its own client. Reads
+    // fall back to the bundler URL for callers that predate the rpc_url split.
     const read_url: []const u8 = if (acc.context.rpc_url.len > 0)
         acc.context.rpc_url
+    else if (acc.context.bundler_url.len > 0)
+        acc.context.bundler_url
     else
         core.buildRpcUrl(a, acc.context.project_id, acc.context.chain_id) catch {
             setLastError("failed to build read RPC URL", .{});
@@ -1951,8 +1960,11 @@ pub export fn aa_account_nonce_for_validator(
     defer arena.deinit();
     const a = arena.allocator();
 
+    // Reads fall back to the bundler URL for callers that predate the split.
     const read_url: []const u8 = if (acc.context.rpc_url.len > 0)
         acc.context.rpc_url
+    else if (acc.context.bundler_url.len > 0)
+        acc.context.bundler_url
     else
         core.buildRpcUrl(a, acc.context.project_id, acc.context.chain_id) catch {
             setLastError("failed to build read RPC URL", .{});
