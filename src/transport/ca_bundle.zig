@@ -5,6 +5,11 @@ const std = @import("std");
 const http = std.http;
 const Bundle = std.crypto.Certificate.Bundle;
 
+// cacert.pem is curl's extract of Mozilla's CA store, from
+// https://curl.se/docs/caextract.html, dated 2026-07-16 (SHA-256
+// e57912808daef7b2b0fa4df2ccf17e47aeaf26c839a38f85c76003ebafd866bd). Roots
+// expire and get added, so refresh it periodically: replace the file, check
+// the SHA-256 against the one curl publishes, and update this note.
 const embedded_pem = @embedFile("cacert.pem");
 
 /// Load the embedded roots into `client`. No-op when TLS is compiled out.
