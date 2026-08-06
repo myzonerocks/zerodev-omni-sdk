@@ -2,12 +2,13 @@
 
 ERC-4337 smart account SDK written in Zig, designed for multi-language consumption via C FFI.
 
-One Zig core → Go, Rust, Swift, Kotlin, Python, C.
+One Zig core → Go, Rust, Swift, Kotlin, Python, Dart, C.
 
 ## Languages
 
 - [Swift (iOS + macOS)](#swift-ios--macos)
 - [Kotlin (Android + JVM)](#kotlin-android--jvm)
+- [Dart (Flutter + Dart)](#dart-flutter--dart)
 - [Go](#go)
 - [Rust](#rust)
 - [Python](#python)
@@ -119,6 +120,63 @@ otherwise the SDK falls back to `signHash` over the keccak-256 auth hash.
 > **Runnable example:** [`examples/gasless-transfer-7702/kotlin`](examples/gasless-transfer-7702/kotlin/)
 
 > **Full example:** [omni-sdk-android-example](https://github.com/zerodevapp/omni-sdk-android-example) — Jetpack Compose app with Privy embedded wallet + gasless transactions
+
+---
+
+## Dart (Flutter + Dart)
+
+### Install
+```yaml
+# pubspec.yaml
+dependencies:
+  zerodev_aa: ^0.0.1-alpha.1
+```
+
+### Usage
+```dart
+import 'package:zerodev_aa/zerodev_aa.dart';
+
+final ctx = Context.create(projectId, chainId: 11155111);
+final signer = Signer.generate();
+final account = ctx.newAccount(signer);
+
+final hash = await account.sendUserOpAsync([Call(target: account.getAddress())]);
+final receipt = await account.waitForUserOperationReceiptAsync(hash);
+```
+
+The synchronous `sendUserOp` / `waitForUserOperationReceipt` are there too; the
+async variants run the blocking native call on a background isolate so a Flutter
+UI stays responsive.
+
+### Custom Signers
+```dart
+class MySigner extends SignerImpl {
+  @override Uint8List signHash(Uint8List hash) { /* ... */ }
+  @override Uint8List signMessage(Uint8List msg) { /* ... */ }
+  @override Uint8List signTypedDataHash(Uint8List hash) { /* ... */ }
+  @override Uint8List getAddress() { /* ... */ }
+}
+
+final signer = Signer.custom(MySigner());
+```
+
+### EIP-7702 delegation
+
+The account address IS the signer's EOA — no CREATE2, no index. The first UserOp
+signs an authorization tuple delegating the EOA to Kernel v3.3 and attaches it
+via `eip7702Auth`; subsequent ops reuse the delegation.
+
+```dart
+final signer = Signer.generate(); // or Signer.local(pk) / Signer.custom(...)
+final account = ctx.newAccount7702(signer);
+final hash = await account.sendUserOpAsync([Call(target: account.getAddress())]);
+```
+
+Custom signers may override `signAuthorization` (and return `true` from
+`providesSignAuthorization`) to sign 7702 tuples natively; otherwise the SDK
+hashes `keccak256(0x05 || rlp([chainId, address, nonce]))` and calls `signHash`.
+
+> **Runnable example:** [`bindings/dart/example`](bindings/dart/example/)
 
 ---
 
@@ -411,7 +469,8 @@ bindings/
 ├── rust/           # Rust (auto Drop)
 ├── swift/          # Swift (SPM, xcframework, async/await)
 ├── kotlin/         # Kotlin/Android (JNI, AutoCloseable)
-└── python/         # Python (ctypes)
+├── python/         # Python (ctypes)
+└── dart/           # Dart + Flutter (dart:ffi, async isolates)
 ```
 
 ## Package Registry Links
@@ -423,4 +482,5 @@ bindings/
 | Go | [Go module](https://pkg.go.dev/github.com/zerodevapp/zerodev-omni-sdk/bindings/go/aa) | All |
 | Rust | [crates.io](https://crates.io/crates/zerodev-aa) | All |
 | Python | [PyPI](https://pypi.org/project/zerodev-aa/) | macOS + Linux |
+| Dart | [pub.dev](https://pub.dev/packages/zerodev_aa) | Flutter + Dart |
 | C | `include/aa.h` | All |
