@@ -128,6 +128,17 @@ class Call {
 
   /// The calldata bytes (may be empty).
   final Uint8List calldata;
+
+  @override
+  bool operator ==(Object other) =>
+      other is Call &&
+      target == other.target &&
+      _bytesEqual(value, other.value) &&
+      _bytesEqual(calldata, other.calldata);
+
+  @override
+  int get hashCode =>
+      Object.hash(target, Object.hashAll(value), Object.hashAll(calldata));
 }
 
 /// An EIP-7702 authorization tuple.
@@ -153,6 +164,29 @@ class Authorization {
     if (s.length != 32) throw ArgumentError.value(s.length, 's', 'must be 32 bytes');
   }
 
+  /// Build a tuple from a 65-byte compact `r‖s‖v` [signature], normalizing the
+  /// recovery id to a y-parity (`v` of 0/1 kept as-is, else `(v - 27) & 1`).
+  factory Authorization.fromCompactSignature({
+    required int chainId,
+    required Uint8List address,
+    required int nonce,
+    required Uint8List signature,
+  }) {
+    if (signature.length != 65) {
+      throw ArgumentError.value(
+          signature.length, 'signature', 'compact signature must be 65 bytes');
+    }
+    final v = signature[64];
+    return Authorization(
+      chainId: chainId,
+      address: address,
+      nonce: nonce,
+      yParity: (v == 0 || v == 1) ? v : (v - 27) & 1,
+      r: Uint8List.sublistView(signature, 0, 32),
+      s: Uint8List.sublistView(signature, 32, 64),
+    );
+  }
+
   /// Chain ID the authorization is valid on (0 = any chain).
   final int chainId;
 
@@ -170,45 +204,20 @@ class Authorization {
 
   /// Signature s, 32 bytes.
   final Uint8List s;
-}
 
-/// Current gas prices, filled by a gas-pricing middleware.
-class GasPrices {
-  /// Prices in wei.
-  const GasPrices({required this.maxFeePerGas, required this.maxPriorityFeePerGas});
+  @override
+  bool operator ==(Object other) =>
+      other is Authorization &&
+      chainId == other.chainId &&
+      nonce == other.nonce &&
+      yParity == other.yParity &&
+      _bytesEqual(address, other.address) &&
+      _bytesEqual(r, other.r) &&
+      _bytesEqual(s, other.s);
 
-  /// The max fee per gas, in wei.
-  final int maxFeePerGas;
-
-  /// The max priority fee per gas, in wei.
-  final int maxPriorityFeePerGas;
-}
-
-/// The result a paymaster middleware returns to sponsor a UserOperation.
-class PaymasterData {
-  /// Sponsor with [paymaster] (20 bytes), the two gas limits, and [data].
-  PaymasterData({
-    required this.paymaster,
-    required this.verificationGasLimit,
-    required this.postOpGasLimit,
-    Uint8List? data,
-  }) : data = data ?? Uint8List(0) {
-    if (paymaster.length != 20) {
-      throw ArgumentError.value(paymaster.length, 'paymaster', 'must be 20 bytes');
-    }
-  }
-
-  /// The paymaster contract address, 20 bytes.
-  final Uint8List paymaster;
-
-  /// The paymaster verification gas limit.
-  final int verificationGasLimit;
-
-  /// The paymaster post-op gas limit.
-  final int postOpGasLimit;
-
-  /// The paymaster data bytes.
-  final Uint8List data;
+  @override
+  int get hashCode => Object.hash(chainId, nonce, yParity,
+      Object.hashAll(address), Object.hashAll(r), Object.hashAll(s));
 }
 
 /// A parsed `eth_getUserOperationReceipt` response.
@@ -286,6 +295,13 @@ class UserOperationReceipt {
     final v = asMap?['receipt'];
     return v is Map<String, dynamic> ? v : null;
   }
+
+  @override
+  bool operator ==(Object other) =>
+      other is UserOperationReceipt && json == other.json;
+
+  @override
+  int get hashCode => json.hashCode;
 }
 
 bool _bytesEqual(Uint8List a, Uint8List b) {

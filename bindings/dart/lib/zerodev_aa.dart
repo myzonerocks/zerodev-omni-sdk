@@ -35,9 +35,7 @@ export 'src/types.dart'
         Authorization,
         Call,
         GasMiddleware,
-        GasPrices,
         Hash,
         KernelVersion,
-        PaymasterData,
         PaymasterMiddleware,
         UserOperationReceipt;
