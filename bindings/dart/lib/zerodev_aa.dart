@@ -25,7 +25,9 @@ export 'src/sdk.dart'
         Account,
         AccountAsync,
         Context,
+        HttpClientTransport,
         HttpTransport,
+        HttpTransportException,
         Signer,
         SignerImpl,
         UserOp;

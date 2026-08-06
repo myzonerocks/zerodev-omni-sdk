@@ -148,6 +148,25 @@ The synchronous `sendUserOp` / `waitForUserOperationReceipt` are there too; the
 async variants run the blocking native call on a background isolate so a Flutter
 UI stays responsive.
 
+On iOS — and anywhere the core's built-in TLS client can't run — route HTTP
+through a Dart `HttpClient` with `useHttpClientTransport()`, and run the work on
+a background isolate:
+
+```dart
+final receiptJson = await Isolate.run(() async {
+  final ctx = Context.create(projectId, chainId: 11155111);
+  await ctx.useHttpClientTransport();       // Dart HttpClient on a worker isolate
+  final signer = Signer.generate();
+  final account = ctx.newAccount(signer);
+  try {
+    final hash = account.sendUserOp([Call(target: account.getAddress())]);
+    return account.waitForUserOperationReceipt(hash).json;
+  } finally {
+    account.dispose(); signer.dispose(); ctx.dispose();
+  }
+});
+```
+
 ### Custom Signers
 ```dart
 class MySigner extends SignerImpl {

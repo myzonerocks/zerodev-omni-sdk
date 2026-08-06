@@ -60,6 +60,7 @@ class Context implements Finalizable {
 
   Pointer<aa_context_t> _ptr;
   _HttpTransportBridge? _httpBridge;
+  HttpClientTransport? _ownedTransport;
   bool _disposed = false;
 
   static final Finalizer<_ContextToken> _finalizer =
@@ -136,6 +137,25 @@ class Context implements Finalizable {
     _httpBridge = bridge;
   }
 
+  /// Route HTTP through a Dart [HttpClientTransport] and own its lifetime, so
+  /// it is shut down when this context is disposed.
+  ///
+  /// A convenience over [setHttpTransport] for the common case; the transport
+  /// blocks the calling isolate while it runs, so call this and this context's
+  /// send/receipt methods on a background isolate (see [HttpClientTransport]).
+  Future<HttpClientTransport> useHttpClientTransport() async {
+    final transport = await HttpClientTransport.create();
+    try {
+      setHttpTransport(transport.send);
+    } catch (_) {
+      transport.dispose();
+      rethrow;
+    }
+    _ownedTransport?.dispose();
+    _ownedTransport = transport;
+    return transport;
+  }
+
   /// Release the context. Idempotent.
   void dispose() {
     if (_disposed) return;
@@ -144,6 +164,8 @@ class Context implements Finalizable {
     _bindings.aa_context_destroy(_ptr);
     _httpBridge?.close();
     _httpBridge = null;
+    _ownedTransport?.dispose();
+    _ownedTransport = null;
   }
 
   /// Alias for [dispose].

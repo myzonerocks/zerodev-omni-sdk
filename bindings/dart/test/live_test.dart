@@ -2,6 +2,7 @@
 library;
 
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:test/test.dart';
 import 'package:zerodev_aa/zerodev_aa.dart';
@@ -46,5 +47,27 @@ void main() {
       signer.dispose();
       ctx.dispose();
     }
+  }, skip: skip);
+
+  test('gasless self-call through the Dart HttpClient transport', () async {
+    // The whole flow runs on a background isolate — the way a Flutter app
+    // would drive it — routing HTTP through the Dart transport rather than the
+    // core's built-in client.
+    final id = projectId!;
+    final json = await Isolate.run(() async {
+      final ctx = Context.create(id, chainId: 11155111);
+      await ctx.useHttpClientTransport();
+      final signer = Signer.generate();
+      final account = ctx.newAccount(signer);
+      try {
+        final hash = account.sendUserOp([Call(target: account.getAddress())]);
+        return account.waitForUserOperationReceipt(hash).json;
+      } finally {
+        account.dispose();
+        signer.dispose();
+        ctx.dispose();
+      }
+    });
+    expect(UserOperationReceipt(json).success, isTrue, reason: json);
   }, skip: skip);
 }

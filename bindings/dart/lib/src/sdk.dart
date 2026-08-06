@@ -3,11 +3,15 @@
 /// can share the library-private native pointers they hand to each other.
 library;
 
+import 'dart:convert';
 import 'dart:ffi';
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
+import 'package:native_synchronization/mailbox.dart';
+import 'package:native_synchronization/sendable.dart';
 
 import 'error.dart';
 import 'ffi/aa_bindings.g.dart';
