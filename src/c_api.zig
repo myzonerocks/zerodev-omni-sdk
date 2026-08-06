@@ -1834,10 +1834,24 @@ pub export fn aa_encode_weighted_enable_data(
     for (0..count) |i| {
         var addr: [20]u8 = undefined;
         @memcpy(&addr, guardians.?[i * 20 .. i * 20 + 20]);
-        set[i] = .{ .address = addr, .weight = @intCast(weights.?[i]) };
+        // The abi fields are narrower than the C ints, so a value that does
+        // not fit would silently wrap in ReleaseFast. Reject it instead.
+        const weight = std.math.cast(u24, weights.?[i]) orelse {
+            setLastError("guardian weight exceeds the uint24 abi field", .{});
+            return .encode_failed;
+        };
+        set[i] = .{ .address = addr, .weight = weight };
     }
 
-    const data = weighted.WeightedValidator.encodeEnableData(allocator, set, @intCast(threshold), @intCast(delay)) catch {
+    const threshold_u24 = std.math.cast(u24, threshold) orelse {
+        setLastError("threshold exceeds the uint24 abi field", .{});
+        return .encode_failed;
+    };
+    const delay_u48 = std.math.cast(u48, delay) orelse {
+        setLastError("delay exceeds the uint48 abi field", .{});
+        return .encode_failed;
+    };
+    const data = weighted.WeightedValidator.encodeEnableData(allocator, set, threshold_u24, delay_u48) catch {
         setLastError("failed to encode weighted enable-data", .{});
         return .encode_failed;
     };
