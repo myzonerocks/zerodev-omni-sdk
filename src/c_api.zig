@@ -1690,3 +1690,33 @@ test "aa_account_create: non-nil address → sender = passed bytes" {
     const counterfactual = try create2.getKernelAddress(acc.?.owner_address, 0, .v3_3);
     try testing.expect(!std.mem.eql(u8, &counterfactual.bytes, &pinned_bytes));
 }
+
+test "aa_account_sign_message: wire bytes match the TypeScript SDK and the chain" {
+    // The full 86-byte signature for a fixed key and message, produced by the
+    // TypeScript SDK for the same v3.3 account and accepted on Sepolia by the
+    // account's own isValidSignature (ERC-1271 magic). Pins the validator-routing
+    // prefix, the validator address, and the deterministic ECDSA bytes at once.
+    var ctx_out: ?*ContextImpl = null;
+    _ = aa_context_create("proj", "", "", 11155111, &ctx_out);
+    defer _ = aa_context_destroy(ctx_out.?);
+
+    var pk: [32]u8 = undefined;
+    _ = std.fmt.hexToBytes(&pk, "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80") catch unreachable;
+    var signer_out: ?*SignerImpl = null;
+    _ = aa_signer_local(&pk, &signer_out);
+    defer aa_signer_destroy(signer_out.?);
+
+    var acc: ?*AccountImpl = null;
+    try testing.expectEqual(Status.ok, aa_account_create(ctx_out.?, signer_out.?, 0, 0, null, &acc));
+    defer _ = aa_account_destroy(acc);
+
+    const message = "goss guardian approval verify";
+    var sig: [86]u8 = undefined;
+    try testing.expectEqual(Status.ok, aa_account_sign_message(acc, message.ptr, message.len, &sig));
+
+    var expected: [86]u8 = undefined;
+    _ = std.fmt.hexToBytes(&expected, "01845adb2c711129d4f3966735ed98a9f09fc4ce57" ++
+        "1f5eacf27158222c3f5923eeabf601c0e363a216b4318f8d74cafeba73e0962b" ++
+        "377edfee6f1ce3d3d42b584558be8fa4d2c58c47799687e0d90ad6c05a48c56a1c") catch unreachable;
+    try testing.expectEqualSlices(u8, &expected, &sig);
+}
