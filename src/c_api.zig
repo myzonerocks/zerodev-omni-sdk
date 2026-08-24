@@ -834,9 +834,10 @@ pub export fn aa_account_sign_message(
         return .sign_message_failed;
     };
 
-    // Root validator routing: type byte 0x00, then the validator address, then the
-    // owner's 65-byte signature — the same layout the web client submits.
-    sig_out.?[0] = 0x00;
+    // Validator routing: type byte 0x01 selects a validator by address, then the
+    // validator's own address, then the owner's 65-byte signature — byte-for-byte
+    // the layout the web client's production-verified approvals submit.
+    sig_out.?[0] = 0x01;
     const validator_addr = @import("validators/ecdsa.zig").ECDSA_VALIDATOR_ADDR;
     @memcpy(sig_out.?[1..21], &validator_addr);
     const sig_bytes = sig.toBytes();
