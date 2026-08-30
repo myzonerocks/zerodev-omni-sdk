@@ -278,7 +278,25 @@ pub export fn aa_gas_zerodev(
 ) callconv(.c) Status {
     const c = ctx orelse return .null_context;
     if (out == null) return .null_out_ptr;
+    return fetchUserOperationGasPrice(c, out.?, "zd_getUserOperationGasPrice");
+}
 
+/// Built-in: Pimlico gas price middleware.
+/// Calls pimlico_getUserOperationGasPrice on the context's RPC endpoint.
+pub export fn aa_gas_pimlico(
+    ctx: ?*ContextImpl,
+    out: ?*GasPrices,
+) callconv(.c) Status {
+    const c = ctx orelse return .null_context;
+    if (out == null) return .null_out_ptr;
+    return fetchUserOperationGasPrice(c, out.?, "pimlico_getUserOperationGasPrice");
+}
+
+fn fetchUserOperationGasPrice(
+    c: *ContextImpl,
+    out: *GasPrices,
+    method: []const u8,
+) Status {
     const allocator = c.allocator;
 
     // Resolve RPC URL
@@ -301,36 +319,36 @@ pub export fn aa_gas_zerodev(
     wireTransport(&rpc, c);
     defer rpc.deinit();
 
-    const result = rpc.callWithParams("zd_getUserOperationGasPrice", &[_]std.json.Value{}) catch |err| {
-        setLastError("zd_getUserOperationGasPrice failed: {s}", .{@errorName(err)});
+    const result = rpc.callWithParams(method, &[_]std.json.Value{}) catch |err| {
+        setLastError("{s} failed: {s}", .{ method, @errorName(err) });
         return .send_userop_failed;
     };
     defer transport.freeValue(allocator, result);
 
     if (result != .object) {
-        setLastError("zd_getUserOperationGasPrice: unexpected response", .{});
+        setLastError("{s}: unexpected response", .{method});
         return .send_userop_failed;
     }
 
     const fast = result.object.get("fast") orelse {
-        setLastError("zd_getUserOperationGasPrice: missing 'fast' field", .{});
+        setLastError("{s}: missing 'fast' field", .{method});
         return .send_userop_failed;
     };
     if (fast != .object) {
-        setLastError("zd_getUserOperationGasPrice: 'fast' is not an object", .{});
+        setLastError("{s}: 'fast' is not an object", .{method});
         return .send_userop_failed;
     }
 
     const mfpg = parseGasField(fast.object, "maxFeePerGas") orelse {
-        setLastError("zd_getUserOperationGasPrice: missing maxFeePerGas", .{});
+        setLastError("{s}: missing maxFeePerGas", .{method});
         return .send_userop_failed;
     };
     const mpfpg = parseGasField(fast.object, "maxPriorityFeePerGas") orelse {
-        setLastError("zd_getUserOperationGasPrice: missing maxPriorityFeePerGas", .{});
+        setLastError("{s}: missing maxPriorityFeePerGas", .{method});
         return .send_userop_failed;
     };
 
-    out.?.* = .{
+    out.* = .{
         .max_fee_per_gas = @intCast(mfpg),
         .max_priority_fee_per_gas = @intCast(mpfpg),
     };
