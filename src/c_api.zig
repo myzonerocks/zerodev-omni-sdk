@@ -1287,8 +1287,19 @@ pub export fn aa_send_userop(
     const chain_id = acc.context.chain_id;
     const entry_point = Address.fromHex(core.ENTRY_POINT_V07) catch return .send_userop_failed;
 
-    // Step 1: Get nonce
-    const nonce = entrypoint_mod.getNonce(&rpc, a, core.ENTRY_POINT_V07, acc.sender_address, 0) catch |err| {
+    // Step 1: Get nonce. eth_call goes to the configured chain RPC when one is set:
+    // dedicated bundler endpoints (e.g. Pimlico) serve ERC-4337 methods but reject
+    // plain node RPC. Falls back to the resolved URL, so aggregated endpoints that
+    // proxy both (e.g. ZeroDev v3) behave exactly as before.
+    var chain_rpc = if (acc.context.rpc_url.len > 0)
+        Client.init(a, acc.context.rpc_url) catch {
+            setLastError("failed to create chain RPC client", .{});
+            return .send_userop_failed;
+        }
+    else
+        rpc;
+    wireTransport(&chain_rpc, acc.context);
+    const nonce = entrypoint_mod.getNonce(&chain_rpc, a, core.ENTRY_POINT_V07, acc.sender_address, 0) catch |err| {
         setLastError("getNonce failed: {s}", .{@errorName(err)});
         return .send_userop_failed;
     };
