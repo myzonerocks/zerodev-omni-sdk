@@ -10,6 +10,14 @@ import CZeroDevAA
 /// because the Zig C FFI is synchronous. This is safe — the calling thread
 /// is always a background thread, never the main thread.
 
+/// Carries the completion handler's answer across the semaphore. The signal/wait
+/// pair orders the closure's writes before the caller's reads, so the unchecked
+/// Sendable is sound; plain captured vars would trip strict-concurrency warnings.
+private final class ResponseBox: @unchecked Sendable {
+    var data: Data?
+    var error: Error?
+}
+
 private func urlSessionHttpCallback(
     ctx: UnsafeMutableRawPointer?,
     url: UnsafePointer<CChar>?,
@@ -30,28 +38,25 @@ private func urlSessionHttpCallback(
     request.httpBody = Data(bytes: body, count: bodyLen)
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-    var responseData: Data?
-    var responseError: Error?
+    let box = ResponseBox()
     let semaphore = DispatchSemaphore(value: 0)
 
     let task = URLSession.shared.dataTask(with: request) { data, _, error in
-        responseData = data
-        responseError = error
+        box.data = data
+        box.error = error
         semaphore.signal()
     }
     task.resume()
     semaphore.wait()
 
-    guard responseError == nil, let data = responseData else { return 1 }
+    guard box.error == nil, let data = box.data else { return 1 }
 
     // Audit F-02: allocate via the SDK's canonical libc allocator so the
     // SDK can safely free with libc free. malloc would also work on Apple
     // platforms (it IS libc malloc), but routing through aa_alloc keeps the
     // allocator contract explicit at the call site.
     let ptr = aa_alloc(data.count)!.assumingMemoryBound(to: CChar.self)
-    data.withUnsafeBytes { bytes in
-        memcpy(ptr, bytes.baseAddress!, data.count)
-    }
+    data.copyBytes(to: UnsafeMutableRawBufferPointer(start: ptr, count: data.count))
     responseOut.pointee = ptr
     responseLenOut.pointee = data.count
 
